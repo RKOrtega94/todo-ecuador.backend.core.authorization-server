@@ -1,0 +1,276 @@
+# =============================================================================
+# .gitignore for Java Spring Boot + Gradle Project
+# Best Practices | Performance | Security
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# SECURITY — Never commit secrets or sensitive configuration
+# -----------------------------------------------------------------------------
+*.env
+.env
+.env.*
+!.env.example
+!.env.template
+!.env.local
+
+application-local.properties
+application-local.yml
+application-secrets.properties
+application-secrets.yml
+application-prod.properties
+application-prod.yml
+application-staging.properties
+application-staging.yml
+
+# Private keys, certificates, keystores
+*.jks
+*.keystore
+*.truststore
+*.p12
+*.pfx
+*.pem
+*.key
+*.cer
+*.crt
+*.der
+
+# Vault / secrets managers configs
+vault.properties
+secrets.properties
+secrets.yml
+
+# OAuth / API keys accidentally stored in files
+serviceAccountKey.json
+google-credentials.json
+firebase-adminsdk*.json
+aws-credentials
+.aws/
+
+
+# -----------------------------------------------------------------------------
+# GRADLE BUILD OUTPUTS
+# -----------------------------------------------------------------------------
+.gradle/
+build/
+out/
+bin/
+
+# Gradle wrapper (keep gradlew and gradlew.bat, but not the jar binary)
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Gradle caches
+.gradle-home/
+gradle-app.setting
+!gradle-wrapper.jar
+
+# Compiled output
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+*.zip
+*.tar.gz
+*.rar
+
+
+# -----------------------------------------------------------------------------
+# SPRING BOOT
+# -----------------------------------------------------------------------------
+# Spring Boot exploded WAR
+/src/main/webapp/WEB-INF/lib/
+
+# Spring Boot DevTools restart trigger
+.reloadtrigger
+spring-devtools.properties
+
+# Spring Session / H2 data files
+*.db
+*.mv.db
+*.trace.db
+
+# Uploaded files (if using local file storage)
+uploads/
+tmp/
+
+
+# -----------------------------------------------------------------------------
+# LOGS — Never commit log files
+# -----------------------------------------------------------------------------
+logs/
+*.log
+*.log.*
+log/
+*.out
+nohup.out
+spring.log
+gc.log
+
+
+# -----------------------------------------------------------------------------
+# IDEs & EDITORS
+# -----------------------------------------------------------------------------
+
+## IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+.idea_modules/
+atlassian-ide-plugin.xml
+
+## Eclipse / STS
+.eclipse/
+.settings/
+.project
+.classpath
+.factorypath
+*.launch
+.springBeans
+
+## VS Code
+.vscode/
+*.code-workspace
+
+## NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+## Vim / Emacs
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+
+
+# -----------------------------------------------------------------------------
+# OS GENERATED FILES
+# -----------------------------------------------------------------------------
+
+## macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+## Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+## Linux
+.directory
+.Trash-*
+
+
+# -----------------------------------------------------------------------------
+# TESTING & COVERAGE
+# -----------------------------------------------------------------------------
+# JaCoCo
+*.exec
+jacoco.exec
+coverage/
+
+# Surefire / Failsafe reports
+/target/surefire-reports/
+/target/failsafe-reports/
+
+# Test output snapshots (if not intentionally versioned)
+test-output/
+allure-results/
+allure-report/
+
+
+# -----------------------------------------------------------------------------
+# DOCKER & CONTAINERS
+# -----------------------------------------------------------------------------
+# Local docker overrides (may contain env vars or secrets)
+docker-compose.override.yml
+docker-compose.local.yml
+.docker/
+
+# Kubernetes secrets
+*-secret.yaml
+*-secret.yml
+k8s/secrets/
+
+
+# -----------------------------------------------------------------------------
+# DEPENDENCY & PACKAGE MANAGEMENT
+# -----------------------------------------------------------------------------
+# Node (if using frontend tooling like Webpack, Thymeleaf build tools, etc.)
+node_modules/
+npm-debug.log*
+yarn-error.log
+.pnpm-debug.log
+package-lock.json
+
+# Maven (if mixed projects)
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+
+
+# -----------------------------------------------------------------------------
+# PERFORMANCE — Exclude generated & cached files that bloat the repo
+# -----------------------------------------------------------------------------
+# JOOQ generated sources (if auto-generated)
+src/main/generated/
+generated-sources/
+generated/
+
+# Querydsl generated sources
+src/main/querydsl/
+
+# MapStruct (generated at compile time, no need to track)
+# Already covered by build/ and out/
+
+# Flyway / Liquibase backups
+*.bak
+backup/
+
+# Heap dumps / thread dumps — critical to never commit
+*.hprof
+heapdump.*
+threaddump.*
+*.dump
+
+
+# -----------------------------------------------------------------------------
+# CI/CD
+# -----------------------------------------------------------------------------
+# Local CI runner overrides
+.gitlab-ci-local/
+act/
+
+
+# -----------------------------------------------------------------------------
+# MISC
+# -----------------------------------------------------------------------------
+# Patch files
+*.patch
+*.orig
+
+# Terraform (if infra-as-code lives in the same repo)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# SonarQube scanner cache
+.sonar/
+.scannerwork/
