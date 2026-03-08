@@ -8,7 +8,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
-import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
@@ -38,30 +37,30 @@ public class AuthorizationClientConfig {
         JdbcRegisteredClientRepository repository = new JdbcRegisteredClientRepository(jdbcTemplate);
         RegisteredClient registeredClient = repository.findByClientId(clientId);
         if (registeredClient == null) {
-            RegisteredClient newRegisteredClient = RegisteredClient.withId(UUID.randomUUID().toString()) //
-                    .clientId(clientId) //
-                    .clientSecret(passwordEncoder.encode(clientSecret)) //
-                    .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC) //
-                    .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE) //
-                    .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN) //
-                    .redirectUri("https://yourapp.com/login/oauth2/code/oidc-client") //
-                    .postLogoutRedirectUri("https://yourapp.com/") //
-                    .scope(OidcScopes.OPENID) //
-                    .scope(OidcScopes.PROFILE) //
-                    .clientSettings(ClientSettings.builder() //
-                            .requireAuthorizationConsent(false) // typically false in prod
-                            .requireProofKey(true)              // enforce PKCE in prod
-                            .build()) //
-                    .tokenSettings(TokenSettings.builder() //
-                            .accessTokenTimeToLive(Duration.ofMinutes(15)) //
-                            .refreshTokenTimeToLive(Duration.ofDays(1)) //
-                            .reuseRefreshTokens(false) // more secure in prod
-                            .build()) //
-                    .build();
-            repository.save(newRegisteredClient);
+            repository.save(buildApiClient(UUID.randomUUID().toString(), passwordEncoder));
+        } else if (!registeredClient.getAuthorizationGrantTypes().contains(AuthorizationGrantType.CLIENT_CREDENTIALS)) {
+            repository.save(buildApiClient(registeredClient.getId(), passwordEncoder));
         }
         return repository;
     }
+
+        private RegisteredClient buildApiClient(String id, PasswordEncoder passwordEncoder) {
+        return RegisteredClient.withId(id) //
+            .clientId(clientId) //
+            .clientSecret(passwordEncoder.encode(clientSecret)) //
+            .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC) //
+            .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS) //
+            .scope("api.read") //
+            .scope("api.write") //
+            .clientSettings(ClientSettings.builder() //
+                .requireAuthorizationConsent(false) // API-only, no UI consent flow
+                .requireProofKey(false) // PKCE applies to browser-based flows
+                .build()) //
+            .tokenSettings(TokenSettings.builder() //
+                .accessTokenTimeToLive(Duration.ofMinutes(30)) //
+                .build()) //
+            .build();
+        }
 
     @Bean
     public OAuth2AuthorizationService authorizationService(RegisteredClientRepository registeredClientRepository) {
