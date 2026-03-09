@@ -1,4 +1,4 @@
-package ec.todoecuador.authorizationserver.modules.auth.domain.foreing_entities;
+package ec.todoecuador.authorizationserver.modules.auth.domain.foreign_entities;
 
 public class UsersForeignEntity {
 }
