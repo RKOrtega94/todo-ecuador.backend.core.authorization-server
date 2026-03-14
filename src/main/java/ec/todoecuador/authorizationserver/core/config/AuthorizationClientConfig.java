@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
+import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
@@ -32,35 +33,70 @@ public class AuthorizationClientConfig {
     @Value("${oauth2.client.oidc.secret:secret}")
     private String clientSecret;
 
+    @Value("${oauth2.client.gateway.id:todo-ecuador-id}")
+    private String gatewayClientId;
+
+    @Value("${oauth2.client.gateway.secret:todo-ecuador-secret}")
+    private String gatewayClientSecret;
+
     @Bean
     public RegisteredClientRepository registeredClientRepository(PasswordEncoder passwordEncoder) {
         JdbcRegisteredClientRepository repository = new JdbcRegisteredClientRepository(jdbcTemplate);
-        RegisteredClient registeredClient = repository.findByClientId(clientId);
-        if (registeredClient == null) {
+
+        // API Client (Internal)
+        RegisteredClient apiClient = repository.findByClientId(clientId);
+        if (apiClient == null) {
             repository.save(buildApiClient(UUID.randomUUID().toString(), passwordEncoder));
-        } else if (!registeredClient.getAuthorizationGrantTypes().contains(AuthorizationGrantType.CLIENT_CREDENTIALS)) {
-            repository.save(buildApiClient(registeredClient.getId(), passwordEncoder));
         }
+
+        // Gateway Client (Public)
+        RegisteredClient gatewayClient = repository.findByClientId(gatewayClientId);
+        if (gatewayClient == null) {
+            repository.save(buildGatewayClient(UUID.randomUUID().toString(), passwordEncoder));
+        }
+
         return repository;
     }
 
-        private RegisteredClient buildApiClient(String id, PasswordEncoder passwordEncoder) {
-        return RegisteredClient.withId(id) //
-            .clientId(clientId) //
-            .clientSecret(passwordEncoder.encode(clientSecret)) //
-            .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC) //
-            .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS) //
-            .scope("api.read") //
-            .scope("api.write") //
-            .clientSettings(ClientSettings.builder() //
-                .requireAuthorizationConsent(false) // API-only, no UI consent flow
-                .requireProofKey(false) // PKCE applies to browser-based flows
-                .build()) //
-            .tokenSettings(TokenSettings.builder() //
-                .accessTokenTimeToLive(Duration.ofMinutes(30)) //
-                .build()) //
-            .build();
-        }
+    private RegisteredClient buildApiClient(String id, PasswordEncoder passwordEncoder) {
+        return RegisteredClient.withId(id)
+                .clientId(clientId)
+                .clientSecret(passwordEncoder.encode(clientSecret))
+                .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+                .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
+                .scope("api.read")
+                .scope("api.write")
+                .clientSettings(ClientSettings.builder()
+                        .requireAuthorizationConsent(false)
+                        .build())
+                .tokenSettings(TokenSettings.builder()
+                        .accessTokenTimeToLive(Duration.ofMinutes(30))
+                        .build())
+                .build();
+    }
+
+    private RegisteredClient buildGatewayClient(String id, PasswordEncoder passwordEncoder) {
+        return RegisteredClient.withId(id)
+                .clientId(gatewayClientId)
+                .clientSecret(passwordEncoder.encode(gatewayClientSecret))
+                .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+                .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+                .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
+                .redirectUri("http://localhost:8080/login/oauth2/code/todo-ecuador-client")
+                .scope(OidcScopes.OPENID)
+                .scope(OidcScopes.PROFILE)
+                .scope(OidcScopes.EMAIL)
+                .scope("api.read")
+                .scope("api.write")
+                .clientSettings(ClientSettings.builder()
+                        .requireAuthorizationConsent(true)
+                        .build())
+                .tokenSettings(TokenSettings.builder()
+                        .accessTokenTimeToLive(Duration.ofMinutes(30))
+                        .refreshTokenTimeToLive(Duration.ofHours(24))
+                        .build())
+                .build();
+    }
 
     @Bean
     public OAuth2AuthorizationService authorizationService(RegisteredClientRepository registeredClientRepository) {

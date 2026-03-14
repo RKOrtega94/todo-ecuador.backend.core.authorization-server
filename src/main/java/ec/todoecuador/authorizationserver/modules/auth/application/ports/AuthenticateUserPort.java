@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
@@ -36,7 +37,7 @@ public class AuthenticateUserPort implements AuthenticateUserUseCase {
 
         try {
             return authenticationManager.authenticate(authenticationRequest);
-        } catch (BadCredentialsException ex) {
+        } catch (AuthenticationException _) {
             throw invalidCredentials();
         }
     }
@@ -55,4 +56,5 @@ public class AuthenticateUserPort implements AuthenticateUserUseCase {
         return new BadCredentialsException(INVALID_CREDENTIALS_MESSAGE);
     }
 }
+
 
