@@ -1,7 +1,8 @@
 package ec.todoecuador.authorizationserver.modules.auth.domain.usecase;
 
-import org.springframework.security.core.Authentication;
+import ec.todoecuador.authorizationserver.modules.auth.domain.model.DeviceContext;
+import ec.todoecuador.authorizationserver.modules.auth.domain.model.TokenPair;
 
 public interface AuthenticateUserUseCase {
-    Authentication execute(String username, String password);
+    TokenPair execute(String username, String password, DeviceContext device);
 }

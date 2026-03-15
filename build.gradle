@@ -19,4 +19,7 @@ dependencies {
     implementation 'org.bouncycastle:bcprov-jdk18on:1.83'
 
     implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
+
+    // Redis: distributed rate limiting and future session/token blacklist support
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 }

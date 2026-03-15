@@ -5,6 +5,8 @@ import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
 
 import java.time.Instant;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -31,4 +33,9 @@ public class UserForeignEntity {
     @ColumnDefault("true")
     @Column(name = "enabled")
     private Boolean enabled;
+
+    @Builder.Default
+    @ManyToMany
+    @JoinTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"), inverseJoinColumns = @JoinColumn(name = "role_id"))
+    private Set<RoleForeignEntity> roles = new HashSet<>();
 }

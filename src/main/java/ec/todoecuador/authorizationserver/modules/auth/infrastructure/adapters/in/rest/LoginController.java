@@ -1,44 +1,163 @@
 package ec.todoecuador.authorizationserver.modules.auth.infrastructure.adapters.in.rest;
 
+import ec.todoecuador.authorizationserver.modules.auth.domain.model.DeviceContext;
+import ec.todoecuador.authorizationserver.modules.auth.domain.model.TokenPair;
 import ec.todoecuador.authorizationserver.modules.auth.domain.usecase.AuthenticateUserUseCase;
+import ec.todoecuador.authorizationserver.modules.auth.domain.usecase.GetActiveSessionsUseCase;
+import ec.todoecuador.authorizationserver.modules.auth.domain.usecase.RefreshTokenUseCase;
+import ec.todoecuador.authorizationserver.modules.auth.domain.usecase.RevokeTokenUseCase;
 import ec.todoecuador.authorizationserver.modules.auth.infrastructure.adapters.in.rest.dto.LoginRequest;
-import ec.todoecuador.authorizationserver.modules.auth.infrastructure.adapters.in.rest.dto.LoginResponse;
+import ec.todoecuador.authorizationserver.modules.auth.infrastructure.adapters.in.rest.dto.RefreshTokenRequest;
+import ec.todoecuador.authorizationserver.modules.auth.infrastructure.adapters.in.rest.dto.SessionResponse;
+import ec.todoecuador.authorizationserver.modules.auth.infrastructure.adapters.in.rest.dto.TokenResponse;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.context.SecurityContextHolderStrategy;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.security.web.context.SecurityContextRepository;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
 public class LoginController {
 
+    private static final String HEADER_X_DEVICE_ID   = "X-Device-Id";
+    private static final String HEADER_X_DEVICE_NAME = "X-Device-Name";
+
     private final AuthenticateUserUseCase authenticateUserUseCase;
-    private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
-    private final SecurityContextHolderStrategy securityContextHolderStrategy = SecurityContextHolder.getContextHolderStrategy();
+    private final RefreshTokenUseCase     refreshTokenUseCase;
+    private final RevokeTokenUseCase      revokeTokenUseCase;
+    private final GetActiveSessionsUseCase getActiveSessionsUseCase;
 
+    /**
+     * Authenticates the user with username + password and returns a token pair.
+     * The response includes an access token (JWT), a one-time refresh token (opaque),
+     * and the session ID for the device.
+     *
+     * <p>On reaching the maximum concurrent sessions the oldest session is automatically evicted.
+     *
+     * <p>Rate limiting: {@code auth.server.rate-limit.login-max-requests} per window per IP.
+     */
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest loginRequest, HttpServletRequest request, HttpServletResponse response) {
-        Authentication authenticationResponse = this.authenticateUserUseCase.execute(
+    public ResponseEntity<TokenResponse> login(
+            @Valid @RequestBody LoginRequest loginRequest,
+            HttpServletRequest request) {
+
+        DeviceContext device = extractDeviceContext(request);
+        TokenPair tokens = authenticateUserUseCase.execute(
                 loginRequest.getUsername(),
-                loginRequest.getPassword());
+                loginRequest.getPassword(),
+                device);
 
-        SecurityContext context = this.securityContextHolderStrategy.createEmptyContext();
-        context.setAuthentication(authenticationResponse);
-        this.securityContextHolderStrategy.setContext(context);
-        this.securityContextRepository.saveContext(context, request, response);
+        return ResponseEntity.ok(TokenResponse.from(tokens));
+    }
 
-        return ResponseEntity.ok(LoginResponse.builder().username(authenticationResponse.getName()).message("Login successful").build());
+    /**
+     * Issues a new token pair using a valid refresh token (rotation).
+     * The supplied refresh token is immediately invalidated — using the same token twice
+     * is treated as evidence of token theft and triggers revocation of ALL sessions.
+     *
+     * <p>Rate limiting: {@code auth.server.rate-limit.refresh-max-requests} per window per IP.
+     */
+    @PostMapping("/refresh")
+    public ResponseEntity<TokenResponse> refresh(
+            @Valid @RequestBody RefreshTokenRequest refreshRequest,
+            HttpServletRequest request) {
+
+        DeviceContext device = extractDeviceContext(request);
+        TokenPair tokens = refreshTokenUseCase.execute(refreshRequest.getRefreshToken(), device);
+
+        return ResponseEntity.ok(TokenResponse.from(tokens));
+    }
+
+    /**
+     * Logs out the currently authenticated user by revoking the active session
+     * (access + refresh tokens are immediately invalidated server-side).
+     * Requires a valid Bearer token in the Authorization header.
+     */
+    @PostMapping("/logout")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> logout(@AuthenticationPrincipal Jwt jwt) {
+        revokeTokenUseCase.revokeCurrentSession(jwt.getId(), jwt.getSubject());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Returns the list of active sessions for the authenticated user.
+     * The current session is flagged with {@code current: true}.
+     */
+    @GetMapping("/sessions")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<SessionResponse>> getSessions(@AuthenticationPrincipal Jwt jwt) {
+        String principalName = jwt.getSubject();
+        String currentJti    = jwt.getId();
+
+        List<SessionResponse> sessions = getActiveSessionsUseCase.execute(principalName, currentJti)
+                .stream()
+                .map(SessionResponse::from)
+                .toList();
+
+        return ResponseEntity.ok(sessions);
+    }
+
+    /**
+     * Revokes a specific session by its ID.
+     * Only the authenticated user can revoke their own sessions.
+     */
+    @DeleteMapping("/sessions/{sessionId}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> revokeSession(
+            @PathVariable UUID sessionId,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        revokeTokenUseCase.revokeSessionById(sessionId, jwt.getSubject());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Revokes all sessions for the authenticated user except the current one.
+     * Useful for "logout all other devices".
+     */
+    @DeleteMapping("/sessions")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> revokeOtherSessions(@AuthenticationPrincipal Jwt jwt) {
+        String sessionIdClaim = jwt.getClaimAsString("session_id");
+        UUID currentSessionId = UUID.fromString(sessionIdClaim);
+
+        revokeTokenUseCase.revokeAllOtherSessions(currentSessionId, jwt.getSubject());
+        return ResponseEntity.noContent().build();
+    }
+
+    // --- Helpers ---
+
+    private DeviceContext extractDeviceContext(HttpServletRequest request) {
+        String deviceId   = request.getHeader(HEADER_X_DEVICE_ID);
+        String deviceName = request.getHeader(HEADER_X_DEVICE_NAME);
+        String userAgent  = request.getHeader("User-Agent");
+        String ipAddress  = extractClientIp(request);
+
+        if (deviceId == null || deviceId.isBlank()) {
+            return DeviceContext.unknown(userAgent, ipAddress);
+        }
+        return new DeviceContext(deviceId, deviceName, userAgent, ipAddress);
+    }
+
+    private String extractClientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp;
+        }
+        return request.getRemoteAddr();
     }
 }
+

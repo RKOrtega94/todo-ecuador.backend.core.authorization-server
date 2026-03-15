@@ -9,6 +9,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
@@ -18,6 +23,11 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
 import org.springframework.security.oauth2.server.authorization.settings.TokenSettings;
+import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
+
+import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.proc.SecurityContext;
 
 import java.time.Duration;
 import java.util.UUID;
@@ -43,13 +53,13 @@ public class AuthorizationClientConfig {
     public RegisteredClientRepository registeredClientRepository(PasswordEncoder passwordEncoder) {
         JdbcRegisteredClientRepository repository = new JdbcRegisteredClientRepository(jdbcTemplate);
 
-        // API Client (Internal)
+        // API Client (Internal — client credentials)
         RegisteredClient apiClient = repository.findByClientId(clientId);
         if (apiClient == null) {
             repository.save(buildApiClient(UUID.randomUUID().toString(), passwordEncoder));
         }
 
-        // Gateway Client (Public)
+        // Gateway Client (Public — authorization code + refresh token with rotation)
         RegisteredClient gatewayClient = repository.findByClientId(gatewayClientId);
         if (gatewayClient == null) {
             repository.save(buildGatewayClient(UUID.randomUUID().toString(), passwordEncoder));
@@ -94,6 +104,8 @@ public class AuthorizationClientConfig {
                 .tokenSettings(TokenSettings.builder()
                         .accessTokenTimeToLive(Duration.ofMinutes(30))
                         .refreshTokenTimeToLive(Duration.ofHours(24))
+                        // Refresh token rotation: a new refresh token is issued on every use; the old one is invalidated
+                        .reuseRefreshTokens(false)
                         .build())
                 .build();
     }
@@ -106,5 +118,27 @@ public class AuthorizationClientConfig {
     @Bean
     public OAuth2AuthorizationConsentService authorizationConsentService(RegisteredClientRepository registeredClientRepository) {
         return new JdbcOAuth2AuthorizationConsentService(jdbcTemplate, registeredClientRepository);
+    }
+
+    /**
+     * Customizer for the standard OAuth2 token endpoint flow (authorization code / client credentials).
+     * Injects a {@code jti} claim that can be used for revocation tracking.
+     */
+    @Bean
+    public OAuth2TokenCustomizer<JwtEncodingContext> jwtTokenCustomizer() {
+        return context -> {
+            JwtClaimsSet.Builder claims = context.getClaims();
+            // Ensure every JWT issued via the standard /oauth2/token endpoint carries a unique JTI
+            claims.id(UUID.randomUUID().toString());
+        };
+    }
+
+    /**
+     * Shared {@link JwtEncoder} used by both the standard Authorization Server token endpoint
+     * and the custom REST token issuance service ({@code TokenIssuanceService}).
+     */
+    @Bean
+    public JwtEncoder jwtEncoder(JWKSource<SecurityContext> jwkSource) {
+        return new NimbusJwtEncoder(jwkSource);
     }
 }
