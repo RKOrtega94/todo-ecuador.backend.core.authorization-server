@@ -25,7 +25,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
-public class LoginController {
+public class AuthController {
 
     private static final String HEADER_X_DEVICE_ID   = "X-Device-Id";
     private static final String HEADER_X_DEVICE_NAME = "X-Device-Name";
