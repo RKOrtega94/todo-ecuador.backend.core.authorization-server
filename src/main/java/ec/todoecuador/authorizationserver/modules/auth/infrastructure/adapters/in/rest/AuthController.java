@@ -36,11 +36,11 @@ public class AuthController {
     private final GetActiveSessionsUseCase getActiveSessionsUseCase;
 
     /**
-     * Authenticates the user with username + password and returns a token pair.
+     * Authenticates the user with username and password and returns a token pair.
      * The response includes an access token (JWT), a one-time refresh token (opaque),
      * and the session ID for the device.
      *
-     * <p>On reaching the maximum concurrent sessions the oldest session is automatically evicted.
+     * <p>On reaching the maximum concurrent sessions, the oldest session is automatically evicted.
      *
      * <p>Rate limiting: {@code auth.server.rate-limit.login-max-requests} per window per IP.
      */
