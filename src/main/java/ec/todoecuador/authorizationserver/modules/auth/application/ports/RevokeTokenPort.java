@@ -23,22 +23,18 @@ public class RevokeTokenPort implements RevokeTokenUseCase {
     public void revokeCurrentSession(String accessTokenJti, String principalName) {
         authSessionRepository.findByAccessTokenJti(accessTokenJti).ifPresent(session -> {
             verifyOwnership(session, principalName);
-            authSessionRepository.revokeById(session.getId());
-            log.info("Session [{}] revoked on logout for user '{}'.", session.getId(), principalName);
+            authSessionRepository.revokeById(session.id());
+            log.info("Session [{}] revoked on logout for user '{}'.", session.id(), principalName);
         });
     }
 
     @Override
     @Transactional
     public void revokeSessionById(UUID sessionId, String principalName) {
-        AuthSession session = authSessionRepository.findActiveSessionsByUsername(principalName)
-                .stream()
-                .filter(s -> s.getId().equals(sessionId))
-                .findFirst()
-                .orElseThrow(SessionOwnershipException::new);
+        AuthSession session = authSessionRepository.findActiveSessionsByUsername(principalName).stream().filter(s -> s.id().equals(sessionId)).findFirst().orElseThrow(SessionOwnershipException::new);
 
         verifyOwnership(session, principalName);
-        authSessionRepository.revokeById(session.getId());
+        authSessionRepository.revokeById(session.id());
         log.info("Session [{}] revoked by user '{}'.", sessionId, principalName);
     }
 
@@ -50,7 +46,7 @@ public class RevokeTokenPort implements RevokeTokenUseCase {
     }
 
     private void verifyOwnership(AuthSession session, String principalName) {
-        if (!session.getUsername().equals(principalName)) {
+        if (!session.username().equals(principalName)) {
             throw new SessionOwnershipException();
         }
     }

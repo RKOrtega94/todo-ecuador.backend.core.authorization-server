@@ -18,6 +18,8 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.Map;
 
+import static ec.todoecuador.authorizationserver.modules.auth.application.utils.RequestUtils.getXForwarded;
+
 /**
  * Distributed rate limiting filter backed by Redis.
  * Applies a fixed-window counter per client IP for sensitive authentication endpoints.
@@ -33,21 +35,18 @@ public class RateLimitingFilter extends OncePerRequestFilter {
 
     private static final String RATE_LIMIT_KEY_PREFIX = "rl:auth:";
     private static final String HEADER_RETRY_AFTER = "Retry-After";
-    private static final String HEADER_X_DEVICE_ID  = "X-Device-Id";
+    private static final String HEADER_X_DEVICE_ID = "X-Device-Id";
 
-    /** Maps endpoint path → max requests per window. */
-    private static final Map<String, String> ENDPOINT_LIMIT_CONFIG = Map.of(
-            "/api/v1/auth/login",   "login",
-            "/api/v1/auth/refresh", "refresh"
-    );
+    /**
+     * Maps endpoint path → max requests per window.
+     */
+    private static final Map<String, String> ENDPOINT_LIMIT_CONFIG = Map.of("/api/v1/auth/login", "login", "/api/v1/auth/refresh", "refresh");
 
     private final StringRedisTemplate redis;
     private final SecurityProperties securityProperties;
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request,
-                                    HttpServletResponse response,
-                                    FilterChain filterChain) throws ServletException, IOException {
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         String uri = request.getRequestURI();
         String limitKey = ENDPOINT_LIMIT_CONFIG.get(uri);
 
@@ -58,7 +57,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
 
         SecurityProperties.RateLimit cfg = securityProperties.getRateLimit();
         int maxRequests = "login".equals(limitKey) ? cfg.getLoginMaxRequests() : cfg.getRefreshMaxRequests();
-        int windowSecs  = cfg.getWindowSeconds();
+        int windowSecs = cfg.getWindowSeconds();
 
         String clientKey = buildClientKey(request, uri);
 
@@ -81,7 +80,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
     }
 
     private String buildClientKey(HttpServletRequest request, String uri) {
-        String ip       = extractClientIp(request);
+        String ip = extractClientIp(request);
         String deviceId = request.getHeader(HEADER_X_DEVICE_ID);
         if (deviceId != null && !deviceId.isBlank()) {
             return RATE_LIMIT_KEY_PREFIX + uri + ":" + ip + ":" + deviceId;
@@ -90,15 +89,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
     }
 
     private String extractClientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) {
-            return realIp;
-        }
-        return request.getRemoteAddr();
+        return getXForwarded(request);
     }
 
     private void writeTooManyRequests(HttpServletResponse response, int retryAfter) throws IOException {

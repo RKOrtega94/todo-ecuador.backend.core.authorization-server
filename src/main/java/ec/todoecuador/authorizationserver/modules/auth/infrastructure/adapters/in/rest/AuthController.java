@@ -10,6 +10,10 @@ import ec.todoecuador.authorizationserver.modules.auth.infrastructure.adapters.i
 import ec.todoecuador.authorizationserver.modules.auth.infrastructure.adapters.in.rest.dto.RefreshTokenRequest;
 import ec.todoecuador.authorizationserver.modules.auth.infrastructure.adapters.in.rest.dto.SessionResponse;
 import ec.todoecuador.authorizationserver.modules.auth.infrastructure.adapters.in.rest.dto.TokenResponse;
+import ec.todoecuador.common.http.CustomApiResponse;
+import ec.todoecuador.common.http.CustomSuccessResponse;
+import ec.todoecuador.common.i18n.I18nKeys;
+import ec.todoecuador.common.i18n.MessageResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -22,18 +26,22 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
+import static ec.todoecuador.authorizationserver.modules.auth.application.utils.RequestUtils.extractDeviceContext;
+
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
-    private static final String HEADER_X_DEVICE_ID   = "X-Device-Id";
+    private static final String HEADER_X_DEVICE_ID = "X-Device-Id";
     private static final String HEADER_X_DEVICE_NAME = "X-Device-Name";
 
     private final AuthenticateUserUseCase authenticateUserUseCase;
-    private final RefreshTokenUseCase     refreshTokenUseCase;
-    private final RevokeTokenUseCase      revokeTokenUseCase;
+    private final RefreshTokenUseCase refreshTokenUseCase;
+    private final RevokeTokenUseCase revokeTokenUseCase;
     private final GetActiveSessionsUseCase getActiveSessionsUseCase;
+
+    private final MessageResolver messageResolver;
 
     /**
      * Authenticates the user with username and password and returns a token pair.
@@ -45,17 +53,11 @@ public class AuthController {
      * <p>Rate limiting: {@code auth.server.rate-limit.login-max-requests} per window per IP.
      */
     @PostMapping("/login")
-    public ResponseEntity<TokenResponse> login(
-            @Valid @RequestBody LoginRequest loginRequest,
-            HttpServletRequest request) {
+    public ResponseEntity<CustomApiResponse> login(@Valid @RequestBody LoginRequest loginRequest, HttpServletRequest request) {
 
         DeviceContext device = extractDeviceContext(request);
-        TokenPair tokens = authenticateUserUseCase.execute(
-                loginRequest.getUsername(),
-                loginRequest.getPassword(),
-                device);
-
-        return ResponseEntity.ok(TokenResponse.from(tokens));
+        TokenPair tokens = authenticateUserUseCase.execute(loginRequest.getUsername(), loginRequest.getPassword(), device);
+        return ResponseEntity.ok(CustomSuccessResponse.ok(messageResolver.get(I18nKeys.LOGIN_SUCCESSFULLY), TokenResponse.from(tokens)));
     }
 
     /**
@@ -66,9 +68,7 @@ public class AuthController {
      * <p>Rate limiting: {@code auth.server.rate-limit.refresh-max-requests} per window per IP.
      */
     @PostMapping("/refresh")
-    public ResponseEntity<TokenResponse> refresh(
-            @Valid @RequestBody RefreshTokenRequest refreshRequest,
-            HttpServletRequest request) {
+    public ResponseEntity<TokenResponse> refresh(@Valid @RequestBody RefreshTokenRequest refreshRequest, HttpServletRequest request) {
 
         DeviceContext device = extractDeviceContext(request);
         TokenPair tokens = refreshTokenUseCase.execute(refreshRequest.getRefreshToken(), device);
@@ -96,12 +96,9 @@ public class AuthController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<SessionResponse>> getSessions(@AuthenticationPrincipal Jwt jwt) {
         String principalName = jwt.getSubject();
-        String currentJti    = jwt.getId();
+        String currentJti = jwt.getId();
 
-        List<SessionResponse> sessions = getActiveSessionsUseCase.execute(principalName, currentJti)
-                .stream()
-                .map(SessionResponse::from)
-                .toList();
+        List<SessionResponse> sessions = getActiveSessionsUseCase.execute(principalName, currentJti).stream().map(SessionResponse::from).toList();
 
         return ResponseEntity.ok(sessions);
     }
@@ -112,9 +109,7 @@ public class AuthController {
      */
     @DeleteMapping("/sessions/{sessionId}")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<Void> revokeSession(
-            @PathVariable UUID sessionId,
-            @AuthenticationPrincipal Jwt jwt) {
+    public ResponseEntity<Void> revokeSession(@PathVariable UUID sessionId, @AuthenticationPrincipal Jwt jwt) {
 
         revokeTokenUseCase.revokeSessionById(sessionId, jwt.getSubject());
         return ResponseEntity.noContent().build();
@@ -132,32 +127,6 @@ public class AuthController {
 
         revokeTokenUseCase.revokeAllOtherSessions(currentSessionId, jwt.getSubject());
         return ResponseEntity.noContent().build();
-    }
-
-    // --- Helpers ---
-
-    private DeviceContext extractDeviceContext(HttpServletRequest request) {
-        String deviceId   = request.getHeader(HEADER_X_DEVICE_ID);
-        String deviceName = request.getHeader(HEADER_X_DEVICE_NAME);
-        String userAgent  = request.getHeader("User-Agent");
-        String ipAddress  = extractClientIp(request);
-
-        if (deviceId == null || deviceId.isBlank()) {
-            return DeviceContext.unknown(userAgent, ipAddress);
-        }
-        return new DeviceContext(deviceId, deviceName, userAgent, ipAddress);
-    }
-
-    private String extractClientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) {
-            return realIp;
-        }
-        return request.getRemoteAddr();
     }
 }
 

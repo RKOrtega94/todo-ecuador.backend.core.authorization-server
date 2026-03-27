@@ -5,6 +5,7 @@ import ec.todoecuador.authorizationserver.modules.auth.domain.foreign_entities.U
 import ec.todoecuador.authorizationserver.modules.auth.domain.model.DeviceContext;
 import ec.todoecuador.authorizationserver.modules.auth.domain.model.TokenPair;
 import ec.todoecuador.authorizationserver.modules.auth.domain.repository.UserRepository;
+import ec.todoecuador.common.i18n.MessageResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,24 +36,29 @@ class AuthenticateUserPortTest {
     private static final String PASSWORD = "secret";
     private static final DeviceContext DEVICE = new DeviceContext("dev-1", "Test Device", "JUnit/5", "127.0.0.1");
 
-    @Mock private AuthenticationManager authenticationManager;
-    @Mock private UserRepository        userRepository;
-    @Mock private TokenIssuanceService  tokenIssuanceService;
+    @Mock
+    private AuthenticationManager authenticationManager;
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private TokenIssuanceService tokenIssuanceService;
+    @Mock
+    private MessageResolver messageResolver;
 
     private AuthenticateUserPort authenticateUserPort;
     private Clock fixedClock;
 
     @BeforeEach
     void setUp() {
-        fixedClock           = Clock.fixed(Instant.parse("2026-03-14T12:00:00Z"), ZoneOffset.UTC);
-        authenticateUserPort = new AuthenticateUserPort(authenticationManager, userRepository, tokenIssuanceService, fixedClock);
+        fixedClock = Clock.fixed(Instant.parse("2026-03-14T12:00:00Z"), ZoneOffset.UTC);
+        authenticateUserPort = new AuthenticateUserPort(authenticationManager, userRepository, tokenIssuanceService, fixedClock, messageResolver);
     }
 
     @Test
     void executeReturnsTokenPairWhenCredentialsAndUserStateAreValid() {
-        UserForeignEntity user               = validUser();
-        Authentication    expectedAuth       = UsernamePasswordAuthenticationToken.authenticated(USERNAME, null, List.of());
-        TokenPair         expectedTokenPair  = new TokenPair("access", "refresh", "Bearer", 1800L, UUID.randomUUID(), Collections.emptyList());
+        UserForeignEntity user = validUser();
+        Authentication expectedAuth = UsernamePasswordAuthenticationToken.authenticated(USERNAME, null, List.of());
+        TokenPair expectedTokenPair = new TokenPair("access", "refresh", "Bearer", 1800L, UUID.randomUUID(), Collections.emptyList());
 
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
         when(authenticationManager.authenticate(any(Authentication.class))).thenReturn(expectedAuth);
@@ -72,7 +78,7 @@ class AuthenticateUserPortTest {
         assertThrows(BadCredentialsException.class, () -> authenticateUserPort.execute(USERNAME, PASSWORD, DEVICE));
 
         verify(authenticationManager, never()).authenticate(any());
-        verify(tokenIssuanceService, never()).issue(any(), any());
+        verify(tokenIssuanceService, never()).issue((Authentication) any(), any());
     }
 
     @Test
@@ -112,12 +118,11 @@ class AuthenticateUserPortTest {
     void executeThrowsBadCredentialsWhenAuthenticationManagerFails() {
         UserForeignEntity user = validUser();
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-        when(authenticationManager.authenticate(any(Authentication.class)))
-                .thenThrow(new BadCredentialsException("bad"));
+        when(authenticationManager.authenticate(any(Authentication.class))).thenThrow(new BadCredentialsException("bad"));
 
         assertThrows(BadCredentialsException.class, () -> authenticateUserPort.execute(USERNAME, PASSWORD, DEVICE));
 
-        verify(tokenIssuanceService, never()).issue(any(), any());
+        verify(tokenIssuanceService, never()).issue((Authentication) any(), any());
     }
 
     private UserForeignEntity validUser() {
@@ -129,4 +134,3 @@ class AuthenticateUserPortTest {
         return user;
     }
 }
-

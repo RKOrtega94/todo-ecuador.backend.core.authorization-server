@@ -16,17 +16,6 @@ public class GetActiveSessionsPort implements GetActiveSessionsUseCase {
 
     @Override
     public List<ActiveSession> execute(String principalName, String currentJti) {
-        return authSessionRepository.findActiveSessionsByUsername(principalName)
-                .stream()
-                .map(s -> new ActiveSession(
-                        s.getId(),
-                        s.getDeviceId(),
-                        s.getDeviceName(),
-                        s.getUserAgent(),
-                        s.getIpAddress(),
-                        s.getCreatedAt(),
-                        s.getLastSeenAt(),
-                        s.getAccessTokenJti().equals(currentJti)))
-                .toList();
+        return authSessionRepository.findActiveSessionsByUsername(principalName).stream().map(s -> new ActiveSession(s.id(), s.deviceId(), s.deviceName(), s.userAgent(), s.ipAddress(), s.createdAt(), s.lastSeenAt(), s.accessTokenJti().equals(currentJti))).toList();
     }
 }

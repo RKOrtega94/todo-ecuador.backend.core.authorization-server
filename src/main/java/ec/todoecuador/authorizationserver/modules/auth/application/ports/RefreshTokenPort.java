@@ -3,6 +3,7 @@ package ec.todoecuador.authorizationserver.modules.auth.application.ports;
 import ec.todoecuador.authorizationserver.modules.auth.application.service.TokenIssuanceService;
 import ec.todoecuador.authorizationserver.modules.auth.domain.exception.InvalidRefreshTokenException;
 import ec.todoecuador.authorizationserver.modules.auth.domain.exception.RefreshTokenReplayException;
+import ec.todoecuador.authorizationserver.modules.auth.domain.foreign_entities.RoleForeignEntity;
 import ec.todoecuador.authorizationserver.modules.auth.domain.model.AuthSession;
 import ec.todoecuador.authorizationserver.modules.auth.domain.model.DeviceContext;
 import ec.todoecuador.authorizationserver.modules.auth.domain.model.TokenPair;
@@ -18,7 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Collections;
-import java.util.List;
 
 @Slf4j
 @Service
@@ -39,34 +39,34 @@ public class RefreshTokenPort implements RefreshTokenUseCase {
 
         // Token replay: already revoked refresh token was reused — potential theft
         if (session.isRevoked()) {
-            log.warn("Refresh token replay detected for user '{}'. Revoking all sessions.", session.getUsername());
-            authSessionRepository.revokeAllByUsername(session.getUsername());
-            throw new RefreshTokenReplayException(session.getUsername());
+            log.warn("Refresh token replay detected for user '{}'. Revoking all sessions.", session.username());
+            authSessionRepository.revokeAllByUsername(session.username());
+            throw new RefreshTokenReplayException(session.username());
         }
 
         if (session.isExpired(Instant.now())) {
-            authSessionRepository.revokeById(session.getId());
+            authSessionRepository.revokeById(session.id());
             throw new InvalidRefreshTokenException();
         }
 
         // Invalidate consumed refresh token (rotation: one-time use)
-        authSessionRepository.revokeById(session.getId());
+        authSessionRepository.revokeById(session.id());
 
         // Issue new token pair with user's actual roles
-        var authorities = userRepository.findByUsername(session.getUsername())
-            .map(user -> user.getRoles().isEmpty()
-                ? Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
-                : user.getRoles().stream()
-                    .map(role -> role.getName())
-                    .map(roleName -> roleName.startsWith("ROLE_") ? roleName : "ROLE_" + roleName)
-                    .map(SimpleGrantedAuthority::new)
-                    .toList())
-            .orElse(Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER")));
+        var authorities = userRepository.findByUsername(session.username())
+                .map(user -> user.getRoles().isEmpty()
+                        ? Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
+                        : user.getRoles().stream()
+                          .map(RoleForeignEntity::getName)
+                          .map(roleName -> roleName.startsWith("ROLE_") ? roleName : "ROLE_" + roleName)
+                          .map(SimpleGrantedAuthority::new)
+                          .toList())
+                .orElse(Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER")));
 
         var authentication = UsernamePasswordAuthenticationToken.authenticated(
-            session.getUsername(), null, authorities);
+                session.username(), null, authorities);
 
-        log.debug("Refresh token rotated for user '{}', device '{}'.", session.getUsername(), session.getDeviceId());
+        log.debug("Refresh token rotated for user '{}', device '{}'.", session.username(), session.deviceId());
         return tokenIssuanceService.issue(authentication, device);
     }
 }

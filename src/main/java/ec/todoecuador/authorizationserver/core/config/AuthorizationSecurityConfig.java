@@ -1,8 +1,10 @@
 package ec.todoecuador.authorizationserver.core.config;
 
-import com.nimbusds.jose.jwk.KeyType;
+import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
+import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 import ec.todoecuador.authorizationserver.core.jwk_sorce.JwkSourceManager;
 import ec.todoecuador.authorizationserver.core.properties.SecurityProperties;
 import ec.todoecuador.authorizationserver.core.security.RateLimitingFilter;
@@ -32,12 +34,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.session.Session;
 import org.springframework.session.security.SpringSessionBackedSessionRegistry;
 
-import com.nimbusds.jose.JWSAlgorithm;
-import com.nimbusds.jose.jwk.JWKMatcher;
-import com.nimbusds.jose.jwk.JWKSelector;
-import com.nimbusds.jose.proc.JWSVerificationKeySelector;
-import com.nimbusds.jwt.proc.DefaultJWTProcessor;
-
 import java.time.Clock;
 import java.util.Optional;
 
@@ -53,47 +49,31 @@ public class AuthorizationSecurityConfig {
     private final TokenRevocationValidator tokenRevocationValidator;
     private final RevokeTokenUseCase revokeTokenUseCase;
 
-    /** Optional: only wired when rate limiting is enabled (conditional bean). */
+    /**
+     * Optional: only wired when rate limiting is enabled (conditional bean).
+     */
     @Autowired(required = false)
     private RateLimitingFilter rateLimitingFilter;
 
     @Bean
     @Order(1)
-    public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
-        http
-                .oauth2AuthorizationServer(authServer -> {
-                    http.securityMatcher(authServer.getEndpointsMatcher());
-                    authServer.oidc(Customizer.withDefaults());
-                })
-                .csrf(AbstractHttpConfigurer::disable)
-                .formLogin(AbstractHttpConfigurer::disable)
-                .httpBasic(AbstractHttpConfigurer::disable)
-                .logout(logout -> logout
-                        .logoutUrl("/api/v1/auth/logout")
-                        .addLogoutHandler(new TokenRevocationLogoutHandler(revokeTokenUseCase))
-                        .logoutSuccessHandler((request, response, authentication) -> {
-                            response.setContentType(APPLICATION_JSON_VALUE);
-                            response.setStatus(HttpStatus.OK.value());
-                            response.getWriter().write("{ \"message\": \"Logout successful\" }");
-                        })
-                )
-                .sessionManagement(session -> session
-                        .maximumSessions(securityProperties.getMaxSessionsPerUser())
-                        .sessionRegistry(sessionRegistry))
-                .authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated())
-                .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint((request, response, authException) -> {
-                            response.setContentType(APPLICATION_JSON_VALUE);
-                            response.setStatus(HttpStatus.UNAUTHORIZED.value());
-                            response.getOutputStream().println("{ \"error\": \"" + authException.getMessage() + "\" }");
-                        })
-                        .accessDeniedHandler((request, response, accessDeniedException) -> {
-                            response.setContentType(APPLICATION_JSON_VALUE);
-                            response.setStatus(HttpStatus.FORBIDDEN.value());
-                            response.getOutputStream().println("{ \"error\": \"Access denied: " + accessDeniedException.getMessage() + "\" }");
-                        })
-                )
-                .oauth2ResourceServer(resourceServer -> resourceServer.jwt(jwt -> jwt.decoder(jwtDecoder(null))));
+    public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) {
+        http.oauth2AuthorizationServer(authServer -> {
+            http.securityMatcher(authServer.getEndpointsMatcher());
+            authServer.oidc(Customizer.withDefaults());
+        }).csrf(AbstractHttpConfigurer::disable).formLogin(AbstractHttpConfigurer::disable).httpBasic(AbstractHttpConfigurer::disable).logout(logout -> logout.logoutUrl("/api/v1/auth/logout").addLogoutHandler(new TokenRevocationLogoutHandler(revokeTokenUseCase)).logoutSuccessHandler((request, response, authentication) -> {
+            response.setContentType(APPLICATION_JSON_VALUE);
+            response.setStatus(HttpStatus.OK.value());
+            response.getWriter().write("{ \"message\": \"Logout successful\" }");
+        })).sessionManagement(session -> session.maximumSessions(securityProperties.getMaxSessionsPerUser()).sessionRegistry(sessionRegistry)).authorizeHttpRequests(authorize -> authorize.requestMatchers("/api/v1/auth/login").permitAll().requestMatchers("/api/v1/auth/refresh").permitAll().requestMatchers("/internal/token").permitAll().anyRequest().authenticated()).exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, authException) -> {
+            response.setContentType(APPLICATION_JSON_VALUE);
+            response.setStatus(HttpStatus.UNAUTHORIZED.value());
+            response.getOutputStream().println("{ \"error\": \"" + authException.getMessage() + "\" }");
+        }).accessDeniedHandler((request, response, accessDeniedException) -> {
+            response.setContentType(APPLICATION_JSON_VALUE);
+            response.setStatus(HttpStatus.FORBIDDEN.value());
+            response.getOutputStream().println("{ \"error\": \"Access denied: " + accessDeniedException.getMessage() + "\" }");
+        })).oauth2ResourceServer(resourceServer -> resourceServer.jwt(jwt -> jwt.decoder(jwtDecoder(null))));
 
         addRateLimitingFilter(http);
         return http.build();
@@ -102,48 +82,26 @@ public class AuthorizationSecurityConfig {
     @Bean
     @Order(2)
     public SecurityFilterChain resourceServerSecurityFilterChain(HttpSecurity http) throws Exception {
-        http
-                .csrf(AbstractHttpConfigurer::disable)
-                .formLogin(AbstractHttpConfigurer::disable)
-                .httpBasic(AbstractHttpConfigurer::disable)
-                .logout(logout -> logout
-                        .logoutUrl("/api/v1/auth/logout")
-                        .addLogoutHandler(new TokenRevocationLogoutHandler(revokeTokenUseCase))
-                        .logoutSuccessHandler((request, response, authentication) -> {
-                            response.setContentType(APPLICATION_JSON_VALUE);
-                            response.setStatus(HttpStatus.OK.value());
-                            response.getWriter().write("{ \"message\": \"Logout successful\" }");
-                        })
-                )
-                .sessionManagement(session -> session
-                        .maximumSessions(securityProperties.getMaxSessionsPerUser())
-                        .sessionRegistry(sessionRegistry))
-                .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/v1/auth/login").permitAll()
-                        .requestMatchers("/api/v1/auth/refresh").permitAll()
-                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
-                        .anyRequest().authenticated()
-                )
-                .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint((request, response, authException) -> {
-                            response.setContentType(APPLICATION_JSON_VALUE);
-                            response.setStatus(HttpStatus.UNAUTHORIZED.value());
-                            response.getOutputStream().println("{ \"error\": \"" + authException.getMessage() + "\" }");
-                        })
-                        .accessDeniedHandler((request, response, accessDeniedException) -> {
-                            response.setContentType(APPLICATION_JSON_VALUE);
-                            response.setStatus(HttpStatus.FORBIDDEN.value());
-                            response.getOutputStream().println("{ \"error\": \"Access denied: " + accessDeniedException.getMessage() + "\" }");
-                        })
-                )
-                .oauth2ResourceServer(resourceServer -> resourceServer.jwt(jwt -> jwt.decoder(jwtDecoder(null))));
+        http.csrf(AbstractHttpConfigurer::disable).formLogin(AbstractHttpConfigurer::disable).httpBasic(AbstractHttpConfigurer::disable).logout(logout -> logout.logoutUrl("/api/v1/auth/logout").addLogoutHandler(new TokenRevocationLogoutHandler(revokeTokenUseCase)).logoutSuccessHandler((request, response, authentication) -> {
+            response.setContentType(APPLICATION_JSON_VALUE);
+            response.setStatus(HttpStatus.OK.value());
+            response.getWriter().write("{ \"message\": \"Logout successful\" }");
+        })).sessionManagement(session -> session.maximumSessions(securityProperties.getMaxSessionsPerUser()).sessionRegistry(sessionRegistry)).authorizeHttpRequests(authorize -> authorize.requestMatchers("/api/v1/auth/login").permitAll().requestMatchers("/api/v1/auth/refresh").permitAll().requestMatchers("/internal/token").permitAll().requestMatchers("/api/v1/admin/**").hasRole("ADMIN").anyRequest().authenticated()).exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, authException) -> {
+            response.setContentType(APPLICATION_JSON_VALUE);
+            response.setStatus(HttpStatus.UNAUTHORIZED.value());
+            response.getOutputStream().println("{ \"error\": \"" + authException.getMessage() + "\" }");
+        }).accessDeniedHandler((request, response, accessDeniedException) -> {
+            response.setContentType(APPLICATION_JSON_VALUE);
+            response.setStatus(HttpStatus.FORBIDDEN.value());
+            response.getOutputStream().println("{ \"error\": \"Access denied: " + accessDeniedException.getMessage() + "\" }");
+        })).oauth2ResourceServer(resourceServer -> resourceServer.jwt(jwt -> jwt.decoder(jwtDecoder(null))));
 
         addRateLimitingFilter(http);
         return http.build();
     }
 
     @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration) throws Exception {
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration) {
         return authenticationConfiguration.getAuthenticationManager();
     }
 
@@ -160,17 +118,14 @@ public class AuthorizationSecurityConfig {
     @Bean
     public JwtDecoder jwtDecoder(JWKSource<SecurityContext> jwkSource) {
         // jwkSource may be null during early bean resolution; use a lazy approach
-        JWKSource<SecurityContext> source = Optional.ofNullable(jwkSource)
-                .orElseThrow(() -> new IllegalStateException("JWKSource must be available"));
+        JWKSource<SecurityContext> source = Optional.ofNullable(jwkSource).orElseThrow(() -> new IllegalStateException("JWKSource must be available"));
 
         var jwtProcessor = new DefaultJWTProcessor<SecurityContext>();
         var selector = new JWSVerificationKeySelector<>(JWSAlgorithm.RS256, source);
         jwtProcessor.setJWSKeySelector(selector);
 
         NimbusJwtDecoder decoder = new NimbusJwtDecoder(jwtProcessor);
-        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
-                JwtValidators.createDefaultWithIssuer(securityProperties.getIssuer()),
-                tokenRevocationValidator));
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(JwtValidators.createDefaultWithIssuer(securityProperties.getIssuer()), tokenRevocationValidator));
 
         return decoder;
     }
