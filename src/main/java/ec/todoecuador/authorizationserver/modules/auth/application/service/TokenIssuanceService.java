@@ -7,6 +7,7 @@ import ec.todoecuador.authorizationserver.modules.auth.domain.model.TokenPair;
 import ec.todoecuador.authorizationserver.modules.auth.domain.repository.AuthSessionRepository;
 import ec.todoecuador.common.dtos.requests.InternalTokenRequest;
 import ec.todoecuador.common.i18n.MessageResolver;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -20,10 +21,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
-import java.util.Objects;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -44,27 +42,36 @@ public class TokenIssuanceService {
     private final MessageResolver messageResolver;
     private final SecureRandom secureRandom = new SecureRandom();
 
+    @Transactional
     public TokenPair issue(Authentication authentication, DeviceContext device) {
         String username = authentication.getName();
         Set<String> authorities = extractAuthorities(authentication);
         enforceSessionLimit(username, securityProperties.getMaxSessionsPerUser());
-        return buildTokenPair(username, authorities, Duration.ofMinutes(securityProperties.getAccessTokenTtlMinutes()), Duration.ofHours(securityProperties.getRefreshTokenTtlHours()), device);
+        return buildTokenPair(username, authorities, Duration.ofMinutes(securityProperties.getAccessTokenTtlMinutes()), Duration.ofHours(securityProperties.getRefreshTokenTtlHours()), device, null);
     }
 
+    @Transactional
     public TokenPair issue(InternalTokenRequest request, DeviceContext context) {
         String username = request.subject();
+        Map<String, Object> claims = request.claims();
         Set<String> authorities = request.authorities();
         enforceSessionLimit(username, PROVISIONAL_MAX_SESSIONS);
-        return buildTokenPair(username, authorities, Duration.ofMinutes(securityProperties.getAccessTokenTtlMinutes()), Duration.ofHours(securityProperties.getRefreshTokenTtlHours()), context);
+        return buildTokenPair(username, authorities, Duration.ofMinutes(securityProperties.getAccessTokenTtlMinutes()), Duration.ofHours(securityProperties.getRefreshTokenTtlHours()), context, claims);
     }
 
-    private TokenPair buildTokenPair(String subject, Set<String> authorities, Duration accessTtl, Duration refreshTtl, DeviceContext device) {
+    private TokenPair buildTokenPair(String subject, Set<String> authorities, Duration accessTtl, Duration refreshTtl, DeviceContext device, Map<String, Object> customClaims) {
         Instant now = Instant.now();
         String jti = UUID.randomUUID().toString();
         UUID sessionId = UUID.randomUUID();
 
-        JwtClaimsSet claims = buildClaims(subject, authorities, now, accessTtl, jti, sessionId, device);
-        Jwt jwt = jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(SignatureAlgorithm.RS256).build(), claims));
+        // Build JWT Claims
+        JwtClaimsSet.Builder claimsBuilder = JwtClaimsSet.builder().issuer(securityProperties.getIssuer()).issuedAt(now).expiresAt(now.plus(accessTtl)).subject(subject).id(jti).claim("session_id", sessionId.toString()).claim("device_id", device.deviceId()).claim("authorities", authorities);
+
+        if (customClaims != null && !customClaims.isEmpty()) {
+            customClaims.forEach(claimsBuilder::claim);
+        }
+
+        Jwt jwt = jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(SignatureAlgorithm.RS256).build(), claimsBuilder.build()));
 
         String rawRefreshToken = generateOpaqueToken();
         String refreshTokenHash = hashToken(rawRefreshToken);
@@ -76,7 +83,7 @@ public class TokenIssuanceService {
         session.deviceName(device.deviceName());
         session.userAgent(device.userAgent());
         session.ipAddress(device.ipAddress());
-        session.accessTokenJti(rawRefreshToken);
+        session.accessTokenJti(jti);
         session.refreshTokenHash(refreshTokenHash);
         session.createdAt(now);
         session.lastSeenAt(now);
@@ -104,24 +111,10 @@ public class TokenIssuanceService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(nonce);
     }
 
-    private JwtClaimsSet buildClaims(String subject, Set<String> authorities, Instant now, Duration accessTtl, String jti, UUID sessionId, DeviceContext device) {
-        JwtClaimsSet.Builder builder = JwtClaimsSet.builder();
-        builder.issuer(securityProperties.getIssuer());
-        builder.issuedAt(now);
-        builder.expiresAt(now.plus(accessTtl));
-        builder.subject(subject);
-        builder.id(jti);
-        builder.claim("session_id", sessionId.toString());
-        builder.claim("device_id", device.deviceId());
-        builder.claim("authorities", authorities);
-        return builder.build();
-    }
-
     private void enforceSessionLimit(String username, Integer maxSessionsPerUser) {
         long activeSessions = authSessionRepository.countActiveSessionsByUsername(username);
-        if (activeSessions >= maxSessionsPerUser) {
-            // TODO: Implement Session limit exception
-        }
+        if (activeSessions >= maxSessionsPerUser) authSessionRepository.deleteOldestSessionByUsername(username);
+
     }
 
     private Set<String> extractAuthorities(Authentication authentication) {

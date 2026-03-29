@@ -13,12 +13,16 @@ public interface AuthSessionRepository {
 
     Optional<AuthSession> findByRefreshTokenHash(String refreshTokenHash);
 
-    /** Returns non-revoked, non-expired sessions for the user ordered by createdAt ascending. */
+    /**
+     * Returns non-revoked, non-expired sessions for the user ordered by createdAt ascending.
+     */
     List<AuthSession> findActiveSessionsByUsername(String username);
 
     long countActiveSessionsByUsername(String username);
 
-    /** Finds the oldest active session for eviction when the session limit is reached. */
+    /**
+     * Finds the oldest active session for eviction when the session limit is reached.
+     */
     Optional<AuthSession> findOldestActiveSessionByUsername(String username);
 
     void revokeById(UUID id);
@@ -26,4 +30,6 @@ public interface AuthSessionRepository {
     void revokeAllByUsernameExcept(String username, UUID exceptSessionId);
 
     void revokeAllByUsername(String username);
+
+    void deleteOldestSessionByUsername(String username);
 }

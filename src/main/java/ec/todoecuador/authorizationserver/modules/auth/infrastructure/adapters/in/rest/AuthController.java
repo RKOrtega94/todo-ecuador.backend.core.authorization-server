@@ -54,7 +54,6 @@ public class AuthController {
      */
     @PostMapping("/login")
     public ResponseEntity<CustomApiResponse> login(@Valid @RequestBody LoginRequest loginRequest, HttpServletRequest request) {
-
         DeviceContext device = extractDeviceContext(request);
         TokenPair tokens = authenticateUserUseCase.execute(loginRequest.getUsername(), loginRequest.getPassword(), device);
         return ResponseEntity.ok(CustomSuccessResponse.ok(messageResolver.get(I18nKeys.LOGIN_SUCCESSFULLY), TokenResponse.from(tokens)));
